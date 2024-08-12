@@ -2,15 +2,22 @@ import json
 import requests
 import time
 import threading
+import subprocess
+import os
 from flask import Flask, request, jsonify
 
+from ament_index_python.packages import get_package_share_directory
+
 class NgrokManager:
-    def __init__(self, port, ngrok_url):
+    def __init__(self, port, ngrok_url, static_domain):
         self.port = port
         self.ngrok_url = ngrok_url
+        self.static_domain = static_domain
 
     def start_ngrok(self):
         """ngrok을 실행하고, 공개 URL을 반환합니다."""
+        ngrok_process = subprocess.Popen(['ngrok', 'http', self.static_domain, \
+            str(self.port)], stdout=subprocess.PIPE)
         time.sleep(5)  # ngrok이 시작될 때까지 잠시 대기
         url = f"{self.ngrok_url}/api/tunnels"
         
@@ -29,11 +36,11 @@ class NgrokManager:
             print(f"Error fetching ngrok URL: {e}")
             return None
 
-class SlackMessageFetcher:
-    def __init__(self, token, port, ngrok_url):
+class SlackMessageHandler:
+    def __init__(self, token, port, ngrok_url, static_domain):
         self.token = token
         self.port = port
-        self.ngrok_manager = NgrokManager(port, ngrok_url)
+        self.ngrok_manager = NgrokManager(port, ngrok_url, static_domain)
         self.app = Flask(__name__)
         self.setup_routes()
 
@@ -129,15 +136,20 @@ class SlackMessageFetcher:
             # ngrok URL을 Slack 이벤트 구독 및 슬래시 커맨드 URL로 수동으로 입력하세요.
         else:
             print('Failed to start ngrok.')
-
-# JSON 파일에서 설정을 읽어오는 부분
-if __name__ == '__main__':
-    with open('config.json') as config_file:
+            
+def main():
+    config_path = os.path.join(get_package_share_directory("makne_service"), "config", "slack_config.json")
+    with open(config_path) as config_file:
         config = json.load(config_file)
     
     slack_token = config['slack_token']
     ngrok_url = config['ngrok_url']
+    static_domain = config["static_domain"]
     port = 5000
     
-    slack_message_fetcher = SlackMessageFetcher(slack_token, port, ngrok_url)
+    slack_message_fetcher = SlackMessageHandler(slack_token, port, ngrok_url, static_domain)
     slack_message_fetcher.start()
+
+# JSON 파일에서 설정을 읽어오는 부분
+if __name__ == '__main__':
+    main()
