@@ -6,7 +6,7 @@ class DBManager():
     def __init__(self, db_name):
         try:
             db_file = os.path.join(get_package_share_directory("makne_db"), "db", db_name)
-            self.connection = sqlite3.connect(db_file)
+            self.connection = sqlite3.connect(db_file, check_same_thread=False)
             self.cursor = self.connection.cursor()
         except sqlite3.Error as e:
             print(f"An error occurred while connecting to the database: {e}")

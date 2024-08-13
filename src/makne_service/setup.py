@@ -24,6 +24,7 @@ setup(
         'console_scripts': [
             "slack_message_handler = makne_service.slack_message_handler:main",
             "waypoint_calculator = makne_service.waypoint_calculator:main",
+            "robot_manager = makne_service.robot_manager:main"
         ],
     },
 )

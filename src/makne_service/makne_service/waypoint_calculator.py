@@ -30,39 +30,44 @@ class WayPointCalculator():
 
         for slack_id in slack_ids:
             # WorkerInfo 테이블에서 worker_id를 가져옴
-            worker_data = self.db_manager.get_data_with_condition("WorkerInfo", "slack_id", slack_id)
+            worker_data = self.db_manager.get_data_with_condition(DBConstants.WORKER_INFO, DBConstants.SLACK_ID, slack_id)
             if worker_data:
                 
-                worker_id = worker_data[0][DBConstants.WORKER_ID]  # worker_data[0][1]은 worker_id를 의미
+                worker_id = worker_data[0][DBConstants.WORKER_ID_COLUMN]  # worker_data[0][1]은 worker_id를 의미
                 # LocationInfo 테이블에서 해당 worker_id에 대한 위치 정보를 가져옴
-                location_data = self.db_manager.get_data_with_condition("LocationInfo", "worker_id", worker_id)
-                print(location_data)
+                location_data = self.db_manager.get_data_with_condition(DBConstants.LOCATION_INFO, DBConstants.WORKER_ID, worker_id)
                 if location_data:
                     
-                    location_x = location_data[0][DBConstants.LOCATION_X]  # location_x
-                    location_y = location_data[0][DBConstants.LOCATION_Y]  # location_y
+                    location_x = location_data[0][DBConstants.LOCATION_X_COLUMN]  # location_x
+                    location_y = location_data[0][DBConstants.LOCATION_Y_COLUMN]  # location_y
                     waypoints.append((location_x, location_y))
 
         return waypoints
 
-    def calculate_optimal_route(self, starting_point, slack_ids):
+    def calculate_optimal_route(self, slack_ids):
         """slack_id 리스트와 시작점을 사용하여 최적의 경로를 계산"""
+        cafe_location_data = self.db_manager.get_data_with_condition(DBConstants.LOCATION_INFO, DBConstants.LOCATION_NAME, DBConstants.CAFE)
+        if cafe_location_data:
+            cafe_location_x = cafe_location_data[0][DBConstants.LOCATION_X_COLUMN]
+            cafe_location_y = cafe_location_data[0][DBConstants.LOCATION_Y_COLUMN]
+            starting_point = (cafe_location_x, cafe_location_y)
+        
         waypoints = self.get_waypoints_from_slack_ids(slack_ids)
-        if waypoints:
+        if waypoints and starting_point:
             optimal_route = self.reorder_waypoints(starting_point, waypoints)
+            optimal_route = [starting_point] + optimal_route
             return optimal_route
         else:
             print("No waypoints found for the provided slack_ids.")
             return []
 
 def main():
-    waypoint_calculator = WayPointCalculator("makne_db")
+    waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)
 
     # 예시 시작점과 slack_id 리스트
-    starting_point = (0, 0)
-    slack_ids = ["dlwlgh0106", "syiner96", "jigu0825"]
+    slack_ids = ["dlwlgh0106", "jigu0825"]
 
-    optimal_route = waypoint_calculator.calculate_optimal_route(starting_point, slack_ids)
+    optimal_route = waypoint_calculator.calculate_optimal_route(slack_ids)
     print("Optimal route:", optimal_route)
 
 if __name__ == "__main__":
