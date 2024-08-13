@@ -1,48 +1,56 @@
-from library.Constants import Topic, Constants
 import rclpy
-from rclpy.qos import QoSProfile
 from rclpy.node import Node
-from message.msg import DispenserStatus
+from rclpy.executors import MultiThreadedExecutor
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from nav_msgs.msg import Path
 from PyQt5.QtCore import pyqtSignal, QObject
+from ament_index_python.packages import get_package_share_directory
+
+import math
 
 class ROSNodeSignals(QObject):
-    robot_status_received = pyqtSignal(str, str, list)
+    amcl_pose_received = pyqtSignal(float, float)
+    path_distance_received = pyqtSignal(float)
     
-
-class RobotStatusSubscription(Node):
+    
+class AmclSubscriber(Node):
     def __init__(self, signals):
-        super().__init__("robot_status_sub")
-        
+        super().__init__("amcl_sub")
         self.signals = signals
-        qos_profile = QoSProfile(depth=Constants.QOS_DEFAULT)
-        self.status_subscriber = self.create_subscription(
-            DispenserStatus, 
-            Topic.ROBOT_STATUS, 
-            self.callback, 
-            qos_profile=qos_profile
+        self.subscription = self.create_subscription(
+            PoseWithCovarianceStamped,
+            "/amcl_pose",
+            self.map_callback,
+            10)
+        
+    def map_callback(self, data):
+        x = data.pose.pose.position.x
+        y = data.pose.pose.position.y
+        self.signals.amcl_pose_received.emit(x, y)
+
+
+class PathSubscriber(Node):
+    def __init__(self, signals):
+        super().__init__("path_sub")
+        self.signals = signals
+        self.subscription = self.create_subscription(
+            Path,
+            "/plan",
+            self.path_callback,
+            10
         )
-        
-    def callback(self, data):
-        seq_no = data.seq_no
-        node_status = data.node_status
-        component = data.component
-        
-
-        self.signals.robot_status_received.emit(seq_no, node_status, component)
-
-def main(args=None):
-    rclpy.init(args=args)
     
-    signals = ROSNodeSignals()
-    node = RobotStatusSubscription(signals)
+    def path_callback(self, msg):
+        distance = self.calculate_total_distance(msg.poses)
+        self.signals.path_distance_received.emit(distance)
+            
+    def calculate_total_distance(self, poses):
+        total_distance = 0.0
+        for i in range(len(poses) - 1):
+            total_distance += self.euclidean_distance(poses[i].pose.position, poses[i + 1].pose.position)
+        
+        return total_distance
     
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    def euclidean_distance(self, p1, p2):
 
-if __name__ == '__main__':
-    main()
+        return math.sqrt((p2.x - p1.x)**2 + (p2.y - p1.y)**2 + (p2.z - p1.z)**2)
