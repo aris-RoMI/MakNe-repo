@@ -13,7 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + "/config/",  glob.glob("makne_service/config/slack_config.json")),
     ],
-    install_requires=['setuptools', "flask", "makne_db", "library"],
+    install_requires=['setuptools', "flask", "makne_db", "library", "nav2_msgs"],
     zip_safe=True,
     maintainer='joe',
     maintainer_email='dlwlgh0106@gmail.com',
@@ -24,7 +24,9 @@ setup(
         'console_scripts': [
             "slack_message_handler = makne_service.slack_message_handler:main",
             "waypoint_calculator = makne_service.waypoint_calculator:main",
-            "robot_manager = makne_service.robot_manager:main"
+            "robot_manager = makne_service.robot_manager:main",
+            "dummy_action_server = makne_service.dummy_action_server:main",
+            "dummy_action_client = makne_service.dummy_action_client:main"
         ],
     },
 )

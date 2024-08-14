@@ -17,8 +17,19 @@ class DBConstants:
     LOCATION_Y_COLUMN = 3
     
     CAFE = "cafe"
+    STANDBY = "standby"
+    PRINTER = "printer"
     
 class CommandConstants:
+    BACK_TO_HOME = 0
     ORDER = 1
     CALL = 2
     CANCEL = 3
+    
+class RobotStatus:
+    STATUS_STANDBY = 0
+    STATUS_ORDER = 1
+    STATUS_CALL = 2
+    STATUS_CANCEL = 3
+    STATUS_ERROR = 99
+    

@@ -60,6 +60,13 @@ class WayPointCalculator():
         else:
             print("No waypoints found for the provided slack_ids.")
             return []
+        
+    def get_point_from_location_name(self, location_name):
+        location_data = self.db_manager.get_data_with_condition(DBConstants.LOCATION_INFO, DBConstants.LOCATION_NAME, location_name)
+        location_x = location_data[0][DBConstants.LOCATION_X_COLUMN]
+        location_y = location_data[0][DBConstants.LOCATION_Y_COLUMN]
+        location_point = tuple(location_x, location_y)
+        return location_point
 
 def main():
     waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)

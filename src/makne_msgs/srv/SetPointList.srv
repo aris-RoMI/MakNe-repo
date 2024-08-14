@@ -1,5 +1,5 @@
 int32 command_type
-Pose2D[] waypoints
+string[] point_list
 
 ---
 bool success

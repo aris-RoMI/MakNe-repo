@@ -3,18 +3,13 @@ import requests
 import time
 import threading
 import subprocess
-import os, re, sys
+import os, re
 from flask import Flask, request, jsonify
-from threading import Thread
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
 
-
-from makne_service.waypoint_calculator import WayPointCalculator
-from makne_service.robot_manager import RobotManager
-from makne_msgs.msg import Pose2D
-from makne_msgs.srv import SetWaypoint
+from makne_msgs.srv import SetPointList
 from library.Constants import DBConstants, SlackConstants, CommandConstants
 
 
@@ -53,9 +48,8 @@ class SlackMessageHandler(Node):
         self.port = port
         self.ngrok_manager = NgrokManager(port, ngrok_url, static_domain)
         self.app = Flask(__name__)
-        self.waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)
 
-        self.waypoint_client = self.create_client(SetWaypoint, '/set_waypoint')        
+        self.waypoint_client = self.create_client(SetPointList, '/set_orderlist')        
         while not self.waypoint_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Service not available, waiting again...')
 
@@ -108,19 +102,10 @@ class SlackMessageHandler(Node):
         if not response.ok:
             self.get_logger().error(f"Failed to send message to Slack: {response.text}")
         
-    def send_waypoint_to_service(self, command_type, channel_id, waypoints):
-        request = SetWaypoint.Request()
+    def send_waypoint_to_service(self, command_type, channel_id, id_list):
+        request = SetPointList.Request()
         request.command_type = command_type  # 예시: 1은 특정 command_type을 나타냄
-
-        # Pose2D 객체 리스트 생성
-        pose_list = []
-        for wp in waypoints:
-            pose = Pose2D()
-            pose.x = wp[0]
-            pose.y = wp[1]
-            pose_list.append(pose)
-
-        request.waypoints = pose_list  # Pose2D 리스트를 request.waypoints에 할당
+        request.point_list = id_list  # 주문자 정보 리스트를 넘김
 
         future = self.waypoint_client.call_async(request)
         future.add_done_callback(lambda f: self.handle_service_response(f, channel_id))
@@ -182,10 +167,10 @@ class SlackMessageHandler(Node):
                 slack_name_list = mentioned_user_names + [user_name]
 
                 response_message = f"User {user_name} in channel {channel_name} issued an /order command with text: {text}"
-                way_point = self.waypoint_calculator.calculate_optimal_route(slack_name_list)
-                print(f"Waypoint: {way_point}")
                 
-                self.send_waypoint_to_service(CommandConstants.ORDER, channel_id, way_point)
+                print(f"Order List: {slack_name_list}")
+                
+                self.send_waypoint_to_service(CommandConstants.ORDER, channel_id, slack_name_list)
                 
 
                 return jsonify({
@@ -206,7 +191,6 @@ class SlackMessageHandler(Node):
 
                 # 예시로 호출된 사용자들에게 알림 메시지를 생성
                 response_message = f"User {user_name} in channel {channel_name} issued a /call command to: {', '.join(slack_id_list)}"
-                print(response_message)
 
                 return jsonify({
                     "response_type": "in_channel",
