@@ -16,6 +16,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MsgTest.msg"
   "msg/Pose2D.msg"
   "srv/SetPointList.srv"
+  "srv/GetStatus.srv"
 )
 
 if(BUILD_TESTING)

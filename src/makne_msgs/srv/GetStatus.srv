@@ -1,0 +1,7 @@
+bool command
+
+---
+bool success
+string current_user
+int32 current_task
+string remain_time
