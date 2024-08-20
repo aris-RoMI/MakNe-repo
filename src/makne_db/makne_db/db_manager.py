@@ -57,6 +57,21 @@ class DBManager():
         except sqlite3.Error as e:
             print(f"An error occurred while fetching data: {e}")
             return []
+        
+    def get_column_data(self, table_name, column_name):
+        """모든 location_name 값을 가져오는 함수"""
+        if not self.connection or not self.cursor:
+            print("No database connection.")
+            return []
+
+        try:
+            query = f"SELECT {column_name} FROM {table_name}"
+            self.cursor.execute(query)
+            results = self.cursor.fetchall()
+            return [row[0] for row in results]
+        except sqlite3.Error as e:
+            print(f"An error occurred while fetching location names: {e}")
+            return []
 
     def insert_data(self, table_name, column_names, values):
         """데이터를 테이블에 삽입하는 함수. 오류가 발생하면 예외처리"""

@@ -55,7 +55,6 @@ class WayPointCalculator():
         waypoints = self.get_waypoints_from_slack_ids(slack_ids)
         if waypoints and starting_point:
             optimal_route = self.reorder_waypoints(starting_point, waypoints)
-            optimal_route = [starting_point] + optimal_route
             return optimal_route
         else:
             print("No waypoints found for the provided slack_ids.")
@@ -65,7 +64,7 @@ class WayPointCalculator():
         location_data = self.db_manager.get_data_with_condition(DBConstants.LOCATION_INFO, DBConstants.LOCATION_NAME, location_name)
         location_x = location_data[0][DBConstants.LOCATION_X_COLUMN]
         location_y = location_data[0][DBConstants.LOCATION_Y_COLUMN]
-        location_point = tuple(location_x, location_y)
+        location_point = (location_x, location_y)
         return location_point
 
 def main():
