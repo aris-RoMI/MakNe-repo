@@ -9,7 +9,7 @@ import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
 
-from makne_msgs.srv import SetPointList, GetStatus
+from makne_msgs.srv import SetPointList, GetStatus, BoolSignal
 from library.Constants import SlackConstants, CommandConstants, DBConstants, RobotStatus
 from makne_db.db_manager import DBManager
 
@@ -53,9 +53,15 @@ class SlackMessageHandler(Node):
 
         self.point_client = self.create_client(SetPointList, '/set_pointlist')
         self.status_client = self.create_client(GetStatus, '/get_status')
+        self.auto_timer_client = self.create_client(BoolSignal, "/auto_timer_signal")
+        self.complete_task_server = self.create_service(BoolSignal, "/complete_task_signal", self.complete_task_callback)
+        self.auto_return_server = self.create_service(BoolSignal, "auto_return_signal", self.auto_return_callback)
+        
         
         while not self.point_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Service not available, waiting again...')
+            
+        self.last_response_url = ""
 
         self.setup_routes()
 
@@ -106,7 +112,7 @@ class SlackMessageHandler(Node):
         if not response.ok:
             self.get_logger().error(f"Failed to send message to Slack: {response.text}")
         
-    def send_point_to_service(self, command_type, channel_id, user_name, id_list):
+    def send_point(self, command_type, channel_id, user_name, id_list):
         
         request = SetPointList.Request()
         request.command_type = command_type
@@ -127,12 +133,12 @@ class SlackMessageHandler(Node):
                 slack_message = f":x: Service failed: {response.message}"
             
             # Slack 채널에 메시지를 보냅니다.
-            self.send_slack_message(channel_id, slack_message)
+            # self.send_slack_message(channel_id, slack_message)
             
         except Exception as e:
             error_message = f"Service call failed: {str(e)}"
             self.get_logger().error(error_message)
-            self.send_slack_message(channel_id, f":x: {error_message}")
+            # self.send_slack_message(channel_id, f":x: {error_message}")
 
     def send_status_request(self, channel_id):
         request = GetStatus.Request()
@@ -157,7 +163,7 @@ class SlackMessageHandler(Node):
     def process_being_used(self, current_user, current_task, remain_time):
         return jsonify({
                 "response_type" : "ephemeral",
-                "message": f"Robot is currently on {current_task} task by {current_user}. Please try again {remain_time} later."
+                "text": f"Robot is currently on {current_task} task by {current_user}. Please try again {remain_time} later."
             })
                 
     def process_get_status(self, current_user, current_task, remain_time):
@@ -189,10 +195,11 @@ class SlackMessageHandler(Node):
         mentioned_user_names = re.findall(r"@(\w+)", self.current_text)
         slack_name_list = mentioned_user_names + [user_name]
 
-        response_message = f"Order has been successfully received by {user_name} in channel {channel_name}."
-        print(f"Order List: {slack_name_list}")
+        response_message = f"Request successfully received by {user_name} in channel {channel_name} command : Send.\nWaypoint are {slack_name_list}."
 
-        # self.send_point_to_service(CommandConstants.ORDER, self.current_channel_id, user_name, slack_name_list)
+        print(f"Waypoint List: {slack_name_list}")
+
+        self.send_point(CommandConstants.SEND_ROBOT, self.current_channel_id, user_name, slack_name_list)
         return jsonify({
             "response_type": "ephemeral",
             "text": response_message,
@@ -227,14 +234,14 @@ class SlackMessageHandler(Node):
         ]
         return jsonify({
             "response_type": "ephemeral",
-            "text": f"{user_name}님이 {channel_name} 채널에서 로봇을 호출합니다.",
+            "text": f"{user_name} is calling the robot in the {channel_name} channel.",
             "blocks": [
                 {
                     "type": "section",
                     "block_id": "select_location_block",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "위치를 선택하세요:"
+                        "text": "Select Location :"
                     },
                     "accessory": {
                         "type": "static_select",
@@ -253,7 +260,7 @@ class SlackMessageHandler(Node):
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "확인"
+                                "text": "Confirm"
                             },
                             "style": "primary",
                             "value": "confirm_location",
@@ -263,7 +270,7 @@ class SlackMessageHandler(Node):
                             "type": "button",
                             "text": {
                                 "type": "plain_text",
-                                "text": "취소"
+                                "text": "Cancel"
                             },
                             "style": "danger",
                             "value": "cancel_call",
@@ -278,9 +285,9 @@ class SlackMessageHandler(Node):
     def process_follow(self):
         user_name = self.fetch_user_name(self.current_user_id)
         channel_name = self.fetch_channel_name(self.current_channel_id)
-        response_message = f"Follow Command has been successfully received by {user_name} in channel {channel_name}."
+        response_message = f"Request successfully received by {user_name} in channel {channel_name}."
 
-        # self.send_point_to_service(CommandConstants.FOLLOW, self.current_channel_id, user_name, [])
+        self.send_point(CommandConstants.FOLLOW, self.current_channel_id, user_name, [])
         return jsonify({
             "response_type": "ephemeral",
             "text": response_message,
@@ -303,12 +310,30 @@ class SlackMessageHandler(Node):
                 }
             ]
         })        
+        
+    def confirm_additional_request(self, channel_name, user_name, response_url):
+        request= BoolSignal.Request()
+        request.complete_signal = True
+        response = self.auto_timer_client.call(request)
+        
+        if response:
+            # Slack에 추가적인 명령을 입력하라는 안내문과 30초 뒤에 자동으로 복귀한다는 내용
+            updated_message = {
+                "response_type": "ephemeral",
+                "text": f":white_check_mark: Additional command confirm. Please retype command you want.\n:warning: If you don't type any command the robot will automatically return to base.\nCurrent User : {user_name}, Channel_id : {channel_name}"
+            }
+            
+            # 기존 메시지를 업데이트하여 취소됨을 알리는 메시지로 교체
+            requests.post(response_url, json=updated_message)
+            
+        
             
     def setup_routes(self):
         """Flask 서버의 라우트를 설정합니다."""
         @self.app.route('/slack/events', methods=['POST'])
         @self.app.route('/slack/interactive-endpoint', methods=['POST'])
         def slack_events():
+            # 구동중인 로봇에 취소 명령을 내리는 부분
             if request.content_type == 'application/x-www-form-urlencoded':
                 payload = json.loads(request.form['payload'])
                 callback_id = payload.get('callback_id')
@@ -319,30 +344,35 @@ class SlackMessageHandler(Node):
                     if actions and actions[0]['value'] == 'cancel_call':
                         user_name = payload['user']['name']
                         channel_id = payload['channel']['id']
-                        response_url = payload['response_url']
+                        channel_name = self.fetch_channel_name(channel_id)
+                        self.last_response_url = payload['response_url']
 
                         # 호출 취소 처리
-                        self.cancel_call_service(channel_id, user_name, response_url, service_callback = True)
+                        self.cancel_call_service(channel_id, user_name, self.last_response_url, service_callback = True)
                         
                 if actions:
+                    selected_value = actions[0].get('value')
                     action_id = actions[0].get('action_id')
                     user_name = payload['user']['name']
                     channel_id = payload['channel']['id']
                     channel_name = self.fetch_channel_name(channel_id)
-                    response_url = payload['response_url']
+                    self.last_response_url = payload['response_url']
                     
-                    if action_id == "cancel_call_action":
-                        user_name = payload['user']['name']
-                        channel_id = payload['channel']['id']
-                        response_url = payload['response_url']
-
-                        # 호출 취소 처리
-                        self.cancel_call_service(channel_id, user_name, response_url, service_callback = False)
-
+                    if selected_value == "yes":
+                        self.confirm_additional_request(channel_name, user_name, self.last_response_url)
+                    
+                    # 작업이 끝나고 추가적인 명령을 내리지 않겠다고 했을 경우
+                    elif selected_value == "no":
+                        self.cancel_call_service(channel_id, user_name, self.last_response_url, service_callback = True)
+                    
+                    # 단순히 창을 닫고 명령을 끝내는 부분
+                    elif action_id == "cancel_call_action":
+                        self.cancel_call_service(channel_id, user_name, self.last_response_url, service_callback = False)
+                        
+                    # robot_call 명령창에서 보낼 곳을 선택한 뒤 로봇에 보내는 부분
                     elif action_id == 'confirm_call_action':
-                        # 로봇 호출 서비스 요청
-                        # self.send_point_to_service(CommandConstants.CALL_ROBOT, channel_id, user_name, [selected_value])
-                        response_message = f"Order has been successfully received by {user_name} in channel {channel_name}."
+                        self.send_point(CommandConstants.CALL_ROBOT, channel_id, user_name, [selected_value])
+                        response_message = f"Request successfully received by {user_name} in channel {channel_name} command : Call.\nGoal :{selected_value}"
 
                         # 호출 완료 메시지와 호출 취소 버튼 전송
                         response = {
@@ -370,7 +400,7 @@ class SlackMessageHandler(Node):
                         }
 
                         # Slack에 메시지 업데이트 요청
-                        requests.post(response_url, json=response)
+                        requests.post(self.last_response_url, json=response)
 
             return '', 200
 
@@ -388,7 +418,10 @@ class SlackMessageHandler(Node):
             self.current_text = text
             self.current_user_id = user_id
             self.current_channel_id = channel_id
-
+            self.last_response_url = data.get('response_url')
+            if self.last_response_url:
+                print(f"Response URL saved: {self.last_response_url}")
+            
             # 현재 로봇 상태를 확인하기 위해 상태 요청을 보냄
             status_response = self.send_status_request(channel_id)
 
@@ -417,18 +450,16 @@ class SlackMessageHandler(Node):
                                                 status_response['remain_time'])
 
             return response
-        
+    # service_callback은 로봇 구동 중에 명령을 취소한 것과 단순히 창을 닫는 동작을 구분하기 위한 변수(bool)
     def cancel_call_service(self, channel_id, user_name, response_url, service_callback):
         """로봇 호출 취소 작업을 처리하고 메시지를 업데이트하는 메소드."""
-        print(f"로봇 호출이 {user_name}에 의해 채널 {channel_id}에서 취소되었습니다.")
-        
         # Slack에 취소 메시지 전송 및 기존 메시지 업데이트
         updated_message = {
             "response_type": "ephemeral",
-            "text": f":x: {user_name}님이 호출을 취소했습니다."
+            "text": f":x: Request was canceled by {user_name} in channel {channel_id}."
         }
-        # if service_callback:
-            # self.send_point_to_service(CommandConstants.CANCEL, channel_id, user_name, [])
+        if service_callback:
+            self.send_point(CommandConstants.CANCEL, channel_id, user_name, [])
         
         # 기존 메시지를 업데이트하여 취소됨을 알리는 메시지로 교체
         requests.post(response_url, json=updated_message)
@@ -453,6 +484,63 @@ class SlackMessageHandler(Node):
             print(f'ngrok URL: {ngrok_url}/slack/commands')  # 명령어 엔드포인트 URL 출력
         else:
             print('Failed to start ngrok.')
+            
+    def auto_return_callback(self, request, response):
+        auto_return_message = {
+            "response_type": "ephemeral",
+            "replace_original": "true",  # 기존 메시지를 덮어씁니다.
+            "text": "The allotted time has elapsed, the robot is returning to the base."  
+        }
+        requests.post(self.last_response_url, json=auto_return_message)
+        response.success = True
+        
+        return response
+            
+    def complete_task_callback(self, request, response):
+        # 작업이 완료되었다는 메시지를 Slack에 보내기 위한 콜백 함수
+
+        # 완료된 작업에 대한 Slack 메시지 구성
+        completion_message = {
+            "response_type": "ephemeral",
+            "replace_original": "true",  # 기존 메시지를 덮어씁니다.
+            "text": "Task completed. Would you like to issue another command?",
+            "attachments": [
+                {
+                    "text": "Please select an option:",
+                    "fallback": "You are unable to choose an option",
+                    "callback_id": "task_complete_callback",
+                    "color": "#3AA3E3",
+                    "attachment_type": "default",
+                    "actions": [
+                        {
+                            "name": "yes",
+                            "text": "Yes",
+                            "type": "button",
+                            "value": "yes",
+                            "style": "primary"
+                        },
+                        {
+                            "name": "no",
+                            "text": "No",
+                            "type": "button",
+                            "value": "no",
+                            "style": "danger"
+                        }
+                    ]
+                }
+            ]
+        }
+
+        # 슬랙에서 봇이 마지막으로 띄운 창의 url 정보를 이용
+        response_post = requests.post(self.last_response_url, json=completion_message)
+
+        # 응답 코드 및 응답 내용 확인
+        print(f"Slack API Response Status Code: {response_post.status_code}")
+        print(f"Slack API Response: {response_post.text}")
+
+        response.success = True
+        
+        return response
             
             
 def main():

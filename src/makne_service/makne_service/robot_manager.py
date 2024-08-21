@@ -1,8 +1,9 @@
+import threading
 import rclpy
 from rclpy.node import Node
 from makne_service.waypoint_calculator import WayPointCalculator
 from makne_service.dummy_action_client import SendGoal
-from makne_msgs.srv import SetPointList, GetStatus
+from makne_msgs.srv import SetPointList, GetStatus, BoolSignal
 from library.Constants import CommandConstants, DBConstants, RobotStatus
 
 class RobotManager(Node):
@@ -11,9 +12,15 @@ class RobotManager(Node):
         # SetPointList 서비스 생성
         self.point_server = self.create_service(SetPointList, '/set_pointlist', self.set_waypoint_callback)
         self.status_server = self.create_service(GetStatus, "/get_status", self.get_status_callback)
+        self.auto_timer_server = self.create_service(BoolSignal, "/auto_timer_signal", self.auto_timer_callback)
+        self.complete_task_client = self.create_client(BoolSignal, "/complete_task_signal")
+        self.auto_return_client = self.create_client(BoolSignal, "/auto_return_signal")
         
         # WayPointCalculator 초기화
         self.waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)
+        
+        # AutoReturnTimer 초기화
+        self.auto_return_timer = None
         
         # 로봇의 상태 초기화
         self.robot_state = RobotStatus.STATUS_STANDBY
@@ -27,10 +34,44 @@ class RobotManager(Node):
         # SendGoal 인스턴스 생성 및 스레드 시작
         self.send_goal = SendGoal(self)
         self.send_goal.start()
+        
+    def start_auto_return_timer(self):
+        # 30초 타이머 후 자동 복귀 함수
+        self.auto_return_timer = threading.Timer(30.0, self.auto_return_to_base)
+        self.auto_return_timer.start()
+        
+    def cancel_auto_return_timer(self):
+        # 타이머 취소 함수
+        if self.auto_return_timer is not None:
+            self.auto_return_timer.cancel()
+            self.get_logger().info("Auto-return timer cancelled.")
+            self.auto_return_timer = None
+        
+    def auto_return_to_base(self):
+        # 30초 후 자동 복귀 처리 함수
+        self.get_logger().info("Auto-return triggered after 30 seconds.")
+        standby_point = self.return_location
+        self.current_user = ""
+        self.send_goal.send_goal(standby_point)
+        self.robot_state = RobotStatus.STATUS_RETURN
+        request = BoolSignal.Request()
+        request.complete_signal = True
+        self.auto_return_client.call_async(request)
+        self.cancel_auto_return_timer()
+        
+    def auto_timer_callback(self, request, response):
+        self.cancel_auto_return_timer()
+        self.start_auto_return_timer()
+        
+        response.success = True
+        
+        return response
+        
 
     def set_waypoint_callback(self, request, response):
         # 아직 로봇에게 명령을 내린 이용자가 없는 경우
-        if self.current_user:
+        if self.current_user == "":
+            self.cancel_auto_return_timer()
             if request.command_type == CommandConstants.CANCEL:
                 response.success = False
                 response.message = "Cancel error! There is nothing to cancel."
@@ -105,48 +146,46 @@ class RobotManager(Node):
                 self.get_logger().info(f"Moving to next goal: {next_goal}")
                 self.send_goal.send_goal(next_goal)
             else:
-                standby_point = self.return_location
-                self.send_goal.send_goal(standby_point)
-                self.get_logger().info("Returning to base.")
-                self.current_user = None
-                self.robot_state = RobotStatus.STATUS_RETURN  # 로봇 상태를 STANDBY로 전환
-
-
-
-
+                request = BoolSignal.Request()
+                request.complete_signal = True
+                
+                future = self.complete_task_client.call_async(request)
+                future.add_done_callback(self.handle_complete_task_response)
+                
+    def handle_complete_task_response(self, future):
+        try:
+            result = future.result()
+            if result.success:
+                self.robot_state = RobotStatus.STATUS_STANDBY  # 로봇 상태를 STANDBY로 전환
+                self.start_auto_return_timer()
+                self.get_logger().info("Task completed successfully. Starting auto-return timer.")
+            else:
+                self.get_logger().warn("Task completion service call failed.")
+        except Exception as e:
+            self.get_logger().error(f"Error in task completion callback: {str(e)}")
 
 # class SendGoal(Thread):
 #     def __init__(self, node: Node):
 #         super().__init__()
 #         self.node = node
-#         self.waypoints = []
-#         self.current_goal_index = 0  # 현재 목표의 인덱스
 #         self._action_client = ActionClient(self.node, NavigateToPose, 'navigate_to_pose')
-#         self._is_active = False  # 작업 중인지 여부를 나타내는 플래그
 
 #     def run(self):
-#         # 이 스레드는 계속 활성화된 상태로 대기하며, 새로운 목표를 기다림
+#         # 스레드 실행: rclpy 스핀을 돌려서 ROS 2 이벤트를 처리함
 #         while rclpy.ok():
-#             if self._is_active and self.current_goal_index < len(self.waypoints):
-#                 self.send_next_goal()
-#             else:
-#                 rclpy.spin_once(self.node, timeout_sec=0.1)
+#             rclpy.spin_once(self.node, timeout_sec=0.1)
 
-#     def send_goal(self, waypoints):
-#         self.waypoints = waypoints
-#         self.current_goal_index = 0
-#         self._is_active = True  # 새로운 목표가 설정되면 작업 시작
+#     def send_goal(self, waypoint):
+#         # 주어진 목표를 처리
+#         self.node.get_logger().info(f"Sending goal to: {waypoint}")
+        
+#         # 실제 goal_msg 생성
+#         goal_msg = NavigateToPose.Goal()
+#         goal_msg.pose = self.create_pose_stamped(waypoint)
 
-#     def send_next_goal(self):
-#         if self.current_goal_index < len(self.waypoints):
-#             waypoint = self.waypoints[self.current_goal_index]
-#             goal_msg = NavigateToPose.Goal()
-#             goal_msg.pose = self.create_pose_stamped(waypoint)
-#             self.send_goal(goal_msg)
-#         else:
-#             self.node.get_logger().info('All goals have been processed.')
-#             self.node.goal_completed_callback()
-#             self._is_active = False  # 모든 목표가 완료되면 비활성화
+#         self._action_client.wait_for_server()
+#         send_goal_future = self._action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
+#         send_goal_future.add_done_callback(self.goal_response_callback)
 
 #     def create_pose_stamped(self, waypoint):
 #         pose = PoseStamped()
@@ -154,14 +193,8 @@ class RobotManager(Node):
 #         pose.header.stamp = self.node.get_clock().now().to_msg()
 #         pose.pose.position.x = waypoint.x
 #         pose.pose.position.y = waypoint.y
-#         pose.pose.orientation.w = 1.0
+#         pose.pose.orientation.w = 1.0  # 적절한 방향으로 설정 필요
 #         return pose
-
-#     def send_goal(self, goal_msg):
-#         self._action_client.wait_for_server()
-#         self.node.get_logger().info(f'Sending goal to {goal_msg.pose.position.x}, {goal_msg.pose.position.y}')
-#         send_goal_future = self._action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
-#         send_goal_future.add_done_callback(self.goal_response_callback)
 
 #     def feedback_callback(self, feedback_msg):
 #         feedback = feedback_msg.feedback
@@ -171,7 +204,6 @@ class RobotManager(Node):
 #         goal_handle = future.result()
 #         if not goal_handle.accepted:
 #             self.node.get_logger().info('Goal rejected')
-#             self._is_active = False
 #             return
 
 #         self.node.get_logger().info('Goal accepted')
@@ -181,8 +213,8 @@ class RobotManager(Node):
 #     def get_result_callback(self, future):
 #         result = future.result().result
 #         self.node.get_logger().info(f'Navigation result: {result}')
-#         self.current_goal_index += 1
-#         self.send_next_goal()  # 다음 목표 전송
+#         # 목표가 완료되면 RobotManager에게 알림
+#         self.node.goal_completed_callback()
 
 
     

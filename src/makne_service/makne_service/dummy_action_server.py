@@ -13,7 +13,7 @@ class TestActionServer(Node):
         self._action_server = ActionServer(
             self,
             Fibonacci,
-            'dummy_action',  # 클라이언트와 일치하는 액션 이름 사용
+            '/navigate_to_pose',  # 클라이언트와 일치하는 액션 이름 사용
             self.execute_callback
         )
         self.get_logger().info("Test Action Server is ready.")

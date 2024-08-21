@@ -8,7 +8,7 @@ class SendGoal(Thread):
     def __init__(self, node: Node):
         super().__init__()
         self.node = node
-        self._action_client = ActionClient(self.node, Fibonacci, 'navigate_to_pose')
+        self._action_client = ActionClient(self.node, Fibonacci, '/navigate_to_pose')
 
     def run(self):
         # 스레드 실행: rclpy 스핀을 돌려서 ROS 2 이벤트를 처리함
@@ -30,7 +30,7 @@ class SendGoal(Thread):
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
         self.node.get_logger().info(f'Received dummy feedback: {feedback.sequence}')
-        self.node.remain_time = feedback.sequence
+        self.node.remain_time = str(feedback.sequence)
 
     def goal_response_callback(self, future):
         goal_handle = future.result()
