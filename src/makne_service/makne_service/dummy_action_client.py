@@ -9,6 +9,7 @@ class SendGoal(Thread):
         super().__init__()
         self.node = node
         self._action_client = ActionClient(self.node, Fibonacci, '/navigate_to_pose')
+        self._current_goal_handle = None
 
     def run(self):
         # 스레드 실행: rclpy 스핀을 돌려서 ROS 2 이벤트를 처리함
@@ -24,6 +25,14 @@ class SendGoal(Thread):
         goal_msg.order = 5  # 더미 데이터, 실제 사용에서는 이 부분을 수정해야 함
 
         self._action_client.wait_for_server()
+
+        # 이전 목표가 진행 중이면 취소
+        if self._current_goal_handle is not None:
+            self.node.get_logger().info('Cancelling the current goal...')
+            cancel_future = self._current_goal_handle.cancel_goal_async()
+            cancel_future.add_done_callback(self.cancel_done_callback)
+        
+        # 새 목표 전송
         send_goal_future = self._action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
         send_goal_future.add_done_callback(self.goal_response_callback)
 
@@ -39,14 +48,24 @@ class SendGoal(Thread):
             return
 
         self.node.get_logger().info('Goal accepted')
+        self._current_goal_handle = goal_handle  # 현재 goal_handle을 저장
         result_future = goal_handle.get_result_async()
         result_future.add_done_callback(self.get_result_callback)
+
+    def cancel_done_callback(self, future):
+        cancel_response = future.result()
+        if len(cancel_response.goals_canceling) > 0:
+            self.node.get_logger().info('Current goal successfully cancelled.')
+        else:
+            self.node.get_logger().info('Failed to cancel the current goal.')
 
     def get_result_callback(self, future):
         result = future.result().result
         self.node.get_logger().info(f'Dummy Navigation result: {result.sequence}')
         # 목표가 완료되면 RobotManager에게 알림
+        self._current_goal_handle = None  # 목표가 완료되었으므로 handle을 해제
         self.node.goal_completed_callback()
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -55,7 +74,6 @@ def main(args=None):
     dummy_send_goal = SendGoal(node)
 
     # 임의의 더미 목표 설정
-    dummy_send_goal.start_new_goal([PoseStamped(), PoseStamped(), PoseStamped()])
     dummy_send_goal.start()
 
     rclpy.spin(node)

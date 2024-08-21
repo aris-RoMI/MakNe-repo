@@ -69,8 +69,8 @@ class RobotManager(Node):
         
 
     def set_waypoint_callback(self, request, response):
-        # 아직 로봇에게 명령을 내린 이용자가 없는 경우
-        if self.current_user == "":
+        # 아직 로봇에게 명령을 내린 이용자가 없거나 같은 이용자가 계속 이용할 경우
+        if self.current_user == "" or self.current_user == request.user_name:
             self.cancel_auto_return_timer()
             if request.command_type == CommandConstants.CANCEL:
                 response.success = False
@@ -104,6 +104,13 @@ class RobotManager(Node):
                 self.robot_state = RobotStatus.STATUS_FOLLOW
                 response.success = True
                 response.message = "Request received! The robot is on task!"
+                
+            elif request.command_type == CommandConstants.RETURN:
+                self.current_user = ""
+                self.send_goal.send_goal(self.return_location)
+                self.robot_state = RobotStatus.STATUS_RETURN
+                response.success = True
+                response.message = "Request received! The robot is on task!"
         
         # 로봇이 이용자 명령을 수행하고 있는 경우
         else:
@@ -131,10 +138,11 @@ class RobotManager(Node):
         
         return response
     
+    # 목표 지점에 도달했을 때 호출되는 콜백
     def goal_completed_callback(self):
-        # 목표 지점에 도달했을 때 호출되는 콜백
+        # 복귀 명령이 완료된 경우
         if self.robot_state == RobotStatus.STATUS_RETURN:
-            # 취소 명령이 완료된 경우
+            
             self.get_logger().info("Task cancelled, robot is now at standby location.")
             self.robot_state = RobotStatus.STATUS_STANDBY  # 로봇 상태를 STANDBY로 전환
             self.remain_time = "0"

@@ -26,6 +26,7 @@ class CommandConstants:
     SEND_ROBOT = 1
     CALL_ROBOT = 2
     FOLLOW = 3
+    RETURN = 4
     CANCEL = 99
     
 class RobotStatus:
