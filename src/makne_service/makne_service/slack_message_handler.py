@@ -3,8 +3,11 @@ import requests
 import time
 import threading
 import subprocess
-import os, re
+import os, re, io
 from flask import Flask, request, jsonify
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+import logging
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
@@ -12,6 +15,7 @@ from ament_index_python.packages import get_package_share_directory
 from makne_msgs.srv import SetPointList, GetStatus, BoolSignal
 from library.Constants import SlackConstants, CommandConstants, DBConstants, RobotStatus
 from makne_db.db_manager import DBManager
+from makne_service.map_editor import MapEditor
 
 
 class NgrokManager:
@@ -50,12 +54,15 @@ class SlackMessageHandler(Node):
         self.ngrok_manager = NgrokManager(port, ngrok_url, static_domain)
         self.app = Flask(__name__)
         self.db_manager = DBManager(DBConstants.DB_NAME)
+        self.map_editor = MapEditor()
+        self.client = WebClient(token=token)
+        self.logger = logging.getLogger(__name__)
 
         self.point_client = self.create_client(SetPointList, '/set_pointlist')
         self.status_client = self.create_client(GetStatus, '/get_status')
         self.auto_timer_client = self.create_client(BoolSignal, "/auto_timer_signal")
         self.complete_task_server = self.create_service(BoolSignal, "/complete_task_signal", self.complete_task_callback)
-        self.auto_return_server = self.create_service(BoolSignal, "auto_return_signal", self.auto_return_callback)
+        self.auto_return_server = self.create_service(BoolSignal, "/auto_return_signal", self.auto_return_callback)
         
         # 서비스 서버와 연결되기 전까지 대기
         while not self.point_client.wait_for_service(timeout_sec=1.0):
@@ -140,6 +147,40 @@ class SlackMessageHandler(Node):
 
         print("Interactive message not found or failed to fetch history.")
         return None
+
+    def upload_image_to_slack(self, channel_id, image_bytes, message=""):
+        """Slack에 이미지를 업로드하고 메시지를 전송합니다."""
+        try:
+            # 이미지 파일을 메모리에 저장하고, 파일처럼 사용
+            image_bytes.seek(0)  # 파일의 시작으로 이동
+            result = self.client.files_upload_v2(
+                channel = channel_id,
+                initial_comment = message,
+                file = image_bytes,
+                filename = "current_Makne_location_image.png",
+                title = "Makne Location Image",
+            )
+            # 결과를 로그에 기록
+            self.logger.info(result)
+            return jsonify({
+                "response_type": "ephemeral",
+                "text": "Image uploaded successfully!",
+                "attachments": [
+                    {
+                        "title": "Uploaded Image",
+                        "image_url": result["file"]["permalink"]
+                    }
+                ]
+            })
+
+        except SlackApiError as e:
+            self.logger.error(f"Error uploading file: {e}")
+            return jsonify({
+                "response_type": "ephemeral",
+                "text": f"Failed to upload image: {e.response['error']}"
+            })
+
+
         
     def send_point(self, command_type, channel_id, user_name, id_list):
         """RobotManager로 이동해야할 목표정보를 전송합니다."""
@@ -197,29 +238,26 @@ class SlackMessageHandler(Node):
                 "response_type" : "ephemeral",
                 "text": f"Robot is currently on {current_task} task by {current_user}. Please try again {remain_time}(s) later."
             })
-                
-    def process_get_status(self, current_user, current_task, remain_time):
-        """현재 로봇 상태 정보를 표시합니다."""
-        try:
-            if current_user == "":
+        
+    def process_get_state(self, current_user, current_task, remain_time, robot_pose, robot_path):
+        """로봇 상태를 이미지로 표현하고, 그 이미지를 Slack에 업로드하면서 메시지도 함께 전송합니다."""
+        if current_user == "":
                 current_user = "None"
+                
+        # 로봇 상태 이미지를 생성
+        image = self.map_editor.overlay_robot_state_on_image(robot_pose, robot_path)
 
-            response_message = f"current_user : {current_user}, current_task : {current_task}, remain_time : {remain_time}"
-            
-            # JSON 응답 생성 및 반환
-            return jsonify({
-                "response_type" : "ephemeral",
-                "text": response_message
-            })
-            
-        except Exception as e:
-            error_message = f"Service call failed: {str(e)}"
-            self.get_logger().error(error_message)
-            return jsonify({
-                "response_type": "ephemeral",
-                "replace_original": "true",  # 기존 메시지를 업데이트합니다.
-                "text": f":x: {error_message}"
-            })
+        # 이미지를 메모리에 저장
+        image_bytes = io.BytesIO()
+        image.save(image_bytes, format='PNG')
+        image_bytes.seek(0)
+        
+        # 이미지와 함께 보낼 메시지 설정
+        message = f"current_user : {current_user}, current_task : {current_task}, remain_time : {remain_time}"
+
+        # 이미지를 Slack에 업로드하면서 메시지를 포함
+        return self.upload_image_to_slack(self.current_channel_id, image_bytes, message)
+        
     
     def process_send_robot(self):
         """send_robot 명령에 대한 결과 표시 목적지 정보 및 호출, 취소 버튼 포함"""
@@ -524,9 +562,11 @@ class SlackMessageHandler(Node):
 
             # 상태에 따른 명령어 처리
             if command == SlackConstants.GET_STATUS:
-                response = self.process_get_status(status_response['current_user'], 
+                response = self.process_get_state(status_response['current_user'], 
                                             status_response['current_task'], 
-                                            status_response['remain_time'])
+                                            status_response['remain_time'],
+                                            (50, 50),
+                                            [(0,0), (2,2)])
                 
             # 로봇을 이용하는 사람이 없을 경우 명령 하달
             elif status_response.get('current_user') == "" or status_response.get('current_user') == user_name:
