@@ -73,8 +73,19 @@ class RobotManager(Node):
         if self.current_user == "" or self.current_user == request.user_name:
             self.cancel_auto_return_timer()
             if request.command_type == CommandConstants.CANCEL:
-                response.success = False
-                response.message = "Cancel error! There is nothing to cancel."
+                if self.robot_state == CommandConstants.CANCEL:
+                    response.success = False
+                    response.message = "Cancel error! There is nothing to cancel."
+                    
+                else:
+                    standby_point = self.return_location
+                    self.send_goal.send_goal(standby_point)  # 대기 위치로 이동
+                    self.current_user = ""
+                    self.robot_state = RobotStatus.STATUS_RETURN
+                    self.optimal_waypoint = []
+                    
+                    response.success = True
+                    response.message = "Request received! The robot is starting to return to the standby position!"
                 
             elif request.command_type == CommandConstants.SEND_ROBOT:
                 self.optimal_waypoint = self.waypoint_calculator.calculate_optimal_route(request.point_list)
@@ -114,19 +125,8 @@ class RobotManager(Node):
         
         # 로봇이 이용자 명령을 수행하고 있는 경우
         else:
-            if request.command_type == CommandConstants.CANCEL and self.current_user == request.user_name:
-                standby_point = self.return_location
-                self.send_goal.send_goal(standby_point)  # 대기 위치로 이동
-                self.current_user = ""
-                self.robot_state = RobotStatus.STATUS_RETURN
-                self.optimal_waypoint = []
-                
-                response.success = True
-                response.message = "Request received! The robot is starting to return to the standby position!"
-                
-            else:
-                response.success = False
-                response.message = "Command error! The robot is already on task. Try again later!"
+            response.success = False
+            response.message = "Command error! The robot is already on task. Try again later!"
 
         return response
 

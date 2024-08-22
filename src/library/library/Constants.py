@@ -39,3 +39,6 @@ class RobotStatus:
     STATUS_ERROR = 6
     
     STATUS_LIST = ["standby","send", "call", "follow", "waiting", "return", "error"]
+    
+class MapEditorConstants:
+    YAML_FILE_NAME = "room_103.yaml"
