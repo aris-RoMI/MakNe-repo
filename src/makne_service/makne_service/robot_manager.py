@@ -5,6 +5,8 @@ from makne_service.waypoint_calculator import WayPointCalculator
 from makne_service.send_goal_client import SendGoal  # 수정된 SendGoal 클래스 import
 from makne_msgs.srv import SetPointList, GetStatus, BoolSignal
 from library.Constants import CommandConstants, DBConstants, RobotStatus
+from std_msgs.msg import String
+from std_srvs.srv import SetBool
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Pose
 from nav_msgs.msg import Path
 
@@ -17,16 +19,21 @@ class RobotManager(Node):
         self.auto_timer_server = self.create_service(BoolSignal, "/auto_timer_signal", self.auto_timer_callback)
         self.complete_task_client = self.create_client(BoolSignal, "/complete_task_signal")
         self.auto_return_client = self.create_client(BoolSignal, "/auto_return_signal") 
+        self.chase_client = self.create_client(SetBool, "/chase_signal")
         
         # 추가된 부분
         self.cancel_event = threading.Event()  # 취소 명령 대기 이벤트
         
         ##################################
         self.amcl_subscription = self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.pose_update_callback, 10)
+        self.subscription = self.create_subscription(Path, "/plan", self.path_update_callback, 10)
+        self.battery_subscription = self.create_subscription(String, "/battery_voltage", self.battery_update_callback, 10)
         self.robot_pose_x = 0
         self.robot_pose_y = 0
-        self.subscription = self.create_subscription(Path, "/plan", self.path_update_callback, 10)
+        
         self.robot_path_list = []
+        
+        self.remain_battery = 100
         
         # WayPointCalculator 초기화
         self.waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)
@@ -60,6 +67,9 @@ class RobotManager(Node):
                 robot_path_list.append((x, y))
                 
         self.robot_path_list = robot_path_list
+        
+    def battery_update_callback(self, data):
+        self.remain_battery  = float(data)
 
     def start_auto_return_timer(self):
         # 30초 타이머 후 자동 복귀 함수
@@ -145,6 +155,9 @@ class RobotManager(Node):
                 response.message = "Request received! The robot is on task!"
                 
             elif request.command_type == CommandConstants.FOLLOW:
+                request = True
+                future = self.chase_client.call_async(request)
+                future.add_done_callback(self.chase_client_callback)
                 self.current_user = request.user_name
                 self.robot_state = RobotStatus.STATUS_FOLLOW
                 response.success = True
@@ -198,6 +211,9 @@ class RobotManager(Node):
         # response에 현재 위치와 경로를 담기
         response.current_pose = current_pose
         response.current_path = current_path
+        
+        # 배터리 잔량 표시
+        response.remain_battery = self.remain_battery
         return response
     
     def goal_completed_callback(self):
@@ -241,6 +257,17 @@ class RobotManager(Node):
                 self.get_logger().warn("Task completion service call failed.")
         except Exception as e:
             self.get_logger().error(f"Error in task completion callback: {str(e)}")
+            
+    def chase_client_callback(self, future):
+        try:
+            result = future.result()
+            if result.success:
+                self.robot_state = RobotStatus.STATUS_FOLLOW
+                self.get_logger().info("Chase mode on.")
+            else:
+                self.get_logger().warn("Task completion service call failed.")
+        except Exception as e:
+            self.get_logger().error(f"Error in chase client callback: {str(e)}")
     
 def main():
     rclpy.init()

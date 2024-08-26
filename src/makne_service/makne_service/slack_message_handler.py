@@ -243,7 +243,7 @@ class SlackMessageHandler(Node):
                 "text": f"Robot is currently on {current_task} task by {current_user}. Please try again {remain_time}(s) later."
             })
         
-    def process_get_state(self, current_user, current_task, remain_time, robot_pose, robot_path):
+    def process_get_state(self, current_user, current_task, remain_time, robot_pose, robot_path, remain_battery):
         """로봇 상태를 이미지로 표현하고, 그 이미지를 Slack에 업로드하면서 메시지도 함께 전송합니다."""
         if current_user == "":
                 current_user = "None"
@@ -257,7 +257,7 @@ class SlackMessageHandler(Node):
         image_bytes.seek(0)
         
         # 이미지와 함께 보낼 메시지 설정
-        message = f"current_user : {current_user}, current_task : {current_task}, remain_time : {remain_time}"
+        message = f"current_user : {current_user}, current_task : {current_task}, remain_time : {remain_time}\ncurrent_battery : {remain_battery}%"
 
         # 이미지를 Slack에 업로드하면서 메시지를 포함
         return self.upload_image_to_slack(self.current_channel_id, image_bytes, message)
@@ -582,7 +582,8 @@ class SlackMessageHandler(Node):
                     status_response['current_task'], 
                     status_response['remain_time'],
                     current_pose_tuple,  # (x, y) 형태의 현재 위치
-                    current_path_list    # (x, y) 형태의 경로 리스트
+                    current_path_list,    # (x, y) 형태의 경로 리스트
+                    status_response["remain_battery"]
                 )
                             
             # 로봇을 이용하는 사람이 없을 경우 명령 하달

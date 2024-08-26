@@ -6,3 +6,4 @@ int32 current_task
 string remain_time
 geometry_msgs/Pose current_pose  # 로봇의 현재 위치
 nav_msgs/Path current_path  
+float32 remain_battery
