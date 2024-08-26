@@ -41,6 +41,6 @@ class RobotStatus:
     STATUS_LIST = ["standby","send", "call", "follow", "waiting", "return", "error"]
     
 class MapEditorConstants:
-    YAML_FILE_NAME = "room_103.yaml"
-    ROBOT_POSE_X_INDEX = 0
-    ROBOT_POSE_Y_INDEX = 1
+    MAP_YAML_FILE= "wtf1.yaml"
+    X_INDEX = 0
+    Y_INDEX = 1

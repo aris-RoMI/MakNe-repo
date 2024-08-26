@@ -2,13 +2,14 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from threading import Thread
-from example_interfaces.action import Fibonacci  # 더미 액션 메시지 사용
+from nav2_msgs.action import NavigateToPose  # 실제 로봇 내비게이션 액션 사용
+from geometry_msgs.msg import PoseStamped  # 목표 위치를 정의하기 위해 필요
 
 class SendGoal(Thread):
     def __init__(self, node: Node):
         super().__init__()
         self.node = node
-        self._action_client = ActionClient(self.node, Fibonacci, '/navigate_to_pose')
+        self._action_client = ActionClient(self.node, NavigateToPose, '/navigate_to_pose')
         self._current_goal_handle = None
 
     def run(self):
@@ -16,13 +17,13 @@ class SendGoal(Thread):
         while rclpy.ok():
             rclpy.spin_once(self.node, timeout_sec=0.1)
 
-    def send_goal(self, waypoint):
+    def send_goal(self, waypoint: PoseStamped):
         # 주어진 목표를 처리
-        self.node.get_logger().info(f"Sending goal to: {waypoint}")
+        self.node.get_logger().info(f"Sending goal to: {waypoint.pose.position.x}, {waypoint.pose.position.y}")
         
-        # 더미 goal_msg 생성
-        goal_msg = Fibonacci.Goal()
-        goal_msg.order = 5  # 더미 데이터, 실제 사용에서는 이 부분을 수정해야 함
+        # NavigateToPose goal_msg 생성
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose = waypoint  # 목표 위치를 설정
 
         self._action_client.wait_for_server()
 
@@ -38,8 +39,8 @@ class SendGoal(Thread):
 
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
-        self.node.get_logger().info(f'Received dummy feedback: {feedback.sequence}')
-        self.node.remain_time = str(feedback.sequence)
+        self.node.get_logger().info(f'Received feedback: {feedback}')
+        # 이 부분에서는 피드백 정보를 로깅하거나 필요한 작업을 수행할 수 있음
 
     def goal_response_callback(self, future):
         goal_handle = future.result()
@@ -61,7 +62,7 @@ class SendGoal(Thread):
 
     def get_result_callback(self, future):
         result = future.result().result
-        self.node.get_logger().info(f'Dummy Navigation result: {result.sequence}')
-        # 목표가 완료되면 RobotManager에게 알림
+        self.node.get_logger().info(f'Navigation result: {result}')
+        # 목표가 완료되면 추가적인 작업을 수행할 수 있음
         self._current_goal_handle = None  # 목표가 완료되었으므로 handle을 해제
-        self.node.goal_completed_callback()
+        self.node.goal_completed_callback()  # 목표 완료 후 콜백 호출

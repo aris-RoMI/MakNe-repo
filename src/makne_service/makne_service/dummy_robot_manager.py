@@ -2,31 +2,19 @@ import threading
 import rclpy
 from rclpy.node import Node
 from makne_service.waypoint_calculator import WayPointCalculator
-from makne_service.send_goal_client import SendGoal  # 수정된 SendGoal 클래스 import
+from makne_service.dummy_action_client import SendGoal
 from makne_msgs.srv import SetPointList, GetStatus, BoolSignal
 from library.Constants import CommandConstants, DBConstants, RobotStatus
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Pose
-from nav_msgs.msg import Path
 
-class RobotManager(Node):
+class DummyRobotManager(Node):
     def __init__(self):
-        super().__init__('robot_manager')
+        super().__init__('dummy_robot_manager')
         # SetPointList 서비스 생성
         self.point_server = self.create_service(SetPointList, '/set_pointlist', self.set_waypoint_callback)
         self.status_server = self.create_service(GetStatus, "/get_status", self.get_status_callback)
         self.auto_timer_server = self.create_service(BoolSignal, "/auto_timer_signal", self.auto_timer_callback)
         self.complete_task_client = self.create_client(BoolSignal, "/complete_task_signal")
-        self.auto_return_client = self.create_client(BoolSignal, "/auto_return_signal") 
-        
-        # 추가된 부분
-        self.cancel_event = threading.Event()  # 취소 명령 대기 이벤트
-        
-        ##################################
-        self.amcl_subscription = self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.pose_update_callback, 10)
-        self.robot_pose_x = 0
-        self.robot_pose_y = 0
-        self.subscription = self.create_subscription(Path, "/plan", self.path_update_callback, 10)
-        self.robot_path_list = []
+        self.auto_return_client = self.create_client(BoolSignal, "/auto_return_signal")
         
         # WayPointCalculator 초기화
         self.waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)
@@ -47,20 +35,6 @@ class RobotManager(Node):
         self.send_goal = SendGoal(self)
         self.send_goal.start()
         
-    def pose_update_callback(self, data):
-        self.robot_pose_x = float(data.pose.pose.position.x)
-        self.robot_pose_y = float(data.pose.pose.position.y)
-        
-    def path_update_callback(self, data):
-        robot_path_list = []
-        if len(data.poses) > 0:
-            for pose in data.poses:
-                x = float(pose.pose.position.x)
-                y = float(pose.pose.position.y)
-                robot_path_list.append((x, y))
-                
-        self.robot_path_list = robot_path_list
-
     def start_auto_return_timer(self):
         # 30초 타이머 후 자동 복귀 함수
         self.auto_return_timer = threading.Timer(30.0, self.auto_return_to_base)
@@ -92,12 +66,9 @@ class RobotManager(Node):
         response.success = True
         
         return response
+        
 
     def set_waypoint_callback(self, request, response):
-        # 취소 명령 처리
-        if request.command_type == CommandConstants.CANCEL:
-            self.cancel_event.set()  # 이벤트 플래그를 설정하여 대기 중인 작업을 중단
-            
         # 아직 로봇에게 명령을 내린 이용자가 없거나 같은 이용자가 계속 이용할 경우
         if self.current_user == "" or self.current_user == request.user_name:
             self.cancel_auto_return_timer()
@@ -107,11 +78,6 @@ class RobotManager(Node):
                     response.message = "Cancel error! There is nothing to cancel."
                     
                 else:
-                    if self.send_goal._current_goal_handle is not None:
-                        self.send_goal._current_goal_handle.cancel_goal_async()
-                        self.get_logger().info("Cancelling the current goal and returning to standby.")
-                        
-                        
                     standby_point = self.return_location
                     self.send_goal.send_goal(standby_point)  # 대기 위치로 이동
                     self.current_user = ""
@@ -170,36 +136,9 @@ class RobotManager(Node):
         response.current_task = self.robot_state
         response.remain_time = self.remain_time
         
-        # 현재 로봇의 위치 설정
-        current_pose = Pose()
-        current_pose.position.x = float(self.robot_pose_x)
-        current_pose.position.y = float(self.robot_pose_y)
-        # Z 축과 orientation도 필요에 따라 설정
-        current_pose.position.z = 0.0  # 기본값 설정
-        current_pose.orientation.w = 1.0  # 기본 quaternion 값
-        
-        # 현재 경로 설정
-        current_path = Path()
-        current_path.header.frame_id = "map"  # 프레임 ID 설정
-        current_path.header.stamp = self.get_clock().now().to_msg()  # 현재 시간으로 타임스탬프 설정
-        
-        # PoseStamped 메시지로 변환하여 Path에 추가
-        pose_stamped_list = []
-        for pose_position in self.robot_path_list:
-            pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "map"
-            pose_stamped.header.stamp = self.get_clock().now().to_msg()
-            pose_stamped.pose.position = pose_position
-            pose_stamped.pose.orientation.w = 1.0  # 기본 orientation 값 설정
-            pose_stamped_list.append(pose_stamped)
-        
-        current_path.poses = pose_stamped_list  # 경로를 담고 있는 PoseStamped 리스트를 설정
-
-        # response에 현재 위치와 경로를 담기
-        response.current_pose = current_pose
-        response.current_path = current_path
         return response
     
+    # 목표 지점에 도달했을 때 호출되는 콜백
     def goal_completed_callback(self):
         # 복귀 명령이 완료된 경우
         if self.robot_state == RobotStatus.STATUS_RETURN:
@@ -209,15 +148,6 @@ class RobotManager(Node):
             self.remain_time = "0"
             
         elif self.robot_state in [RobotStatus.STATUS_SEND, RobotStatus.STATUS_CALL]:
-            # 추가된 부분: 대기 시간 동안 취소 명령이 있는지 확인
-            self.cancel_event.clear()  # 이벤트 플래그를 초기화
-            self.get_logger().info("Waiting before proceeding to the next goal...")
-            
-            wait_duration = 5.0  # 대기 시간 설정 (초 단위)
-            if self.cancel_event.wait(timeout=wait_duration):
-                self.get_logger().info("Task was cancelled during wait time.")
-                return  # 대기 중에 취소되었으므로 작업을 중단
-            
             # 다음 목표로 이동하거나, 모든 목표 완료 후 복귀 처리
             if len(self.optimal_waypoint) > 0:
                 next_goal = self.optimal_waypoint.pop(0)
@@ -245,11 +175,11 @@ class RobotManager(Node):
 def main():
     rclpy.init()
     
-    robot_manager = RobotManager()
+    dummy_robot_manager = DummyRobotManager()
     try:
 
         # ROS 2 이벤트 루프 실행
-        rclpy.spin(robot_manager)
+        rclpy.spin(dummy_robot_manager)
     except KeyboardInterrupt:
         rclpy.shutdown()
     finally:

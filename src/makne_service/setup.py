@@ -25,9 +25,11 @@ setup(
             "slack_message_handler = makne_service.slack_message_handler:main",
             "waypoint_calculator = makne_service.waypoint_calculator:main",
             "robot_manager = makne_service.robot_manager:main",
+            "send_goal_client = makne_service.send_goal_client:main",
+            "map_editor = makne_service.map_editor:main",
+            "dummy_robot_manager = makne_service.dummy_robot_manager:main",
             "dummy_action_server = makne_service.dummy_action_server:main",
-            "dummy_action_client = makne_service.dummy_action_client:main"
-            "map_editor = makne_service.map_editor:main"
+            "dummy_action_client = makne_service.dummy_action_client:main",
         ],
     },
 )

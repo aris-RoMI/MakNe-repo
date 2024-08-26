@@ -223,13 +223,17 @@ class SlackMessageHandler(Node):
             return {
                 "current_user": response.current_user,
                 "current_task": RobotStatus.STATUS_LIST[response.current_task],
-                "remain_time": response.remain_time
+                "remain_time": response.remain_time,
+                "current_pose": response.current_pose,
+                "current_path": response.current_path
             }
         else:
             return {
                 "current_user": "Error",
                 "current_task": "Error",
-                "remain_time": "N/A"
+                "remain_time": "N/A",
+                "current_pose": "Error",
+                "current_path": "Error"
             }
             
     def process_being_used(self, current_user, current_task, remain_time):
@@ -559,15 +563,28 @@ class SlackMessageHandler(Node):
             
             # 현재 로봇 상태를 확인하기 위해 상태 요청을 보냄
             status_response = self.send_status_request(channel_id)
-
-            # 상태에 따른 명령어 처리
+            # 상태에 따른 명령어 처리 
             if command == SlackConstants.GET_STATUS:
-                response = self.process_get_state(status_response['current_user'], 
-                                            status_response['current_task'], 
-                                            status_response['remain_time'],
-                                            (50, 50),
-                                            [(0,0), (2,2)])
-                
+                # current_pose를 (x, y) 형태의 튜플로 변환
+                current_pose_tuple = (
+                    status_response["current_pose"].position.x,
+                    status_response["current_pose"].position.y
+                )
+
+                # current_path를 (x, y) 형태의 튜플 리스트로 변환
+                current_path_list = [
+                    (pose.pose.position.x, pose.pose.position.y)
+                    for pose in status_response["current_path"].poses
+                ]
+
+                response = self.process_get_state(
+                    status_response['current_user'], 
+                    status_response['current_task'], 
+                    status_response['remain_time'],
+                    current_pose_tuple,  # (x, y) 형태의 현재 위치
+                    current_path_list    # (x, y) 형태의 경로 리스트
+                )
+                            
             # 로봇을 이용하는 사람이 없을 경우 명령 하달
             elif status_response.get('current_user') == "" or status_response.get('current_user') == user_name:
                 if command == SlackConstants.SEND_ROBOT:
