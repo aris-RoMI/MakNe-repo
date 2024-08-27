@@ -192,6 +192,7 @@ class SlackMessageHandler(Node):
         future = self.point_client.call_async(request)
         future.add_done_callback(lambda f: self.handle_set_point_response(f, channel_id))
         
+        
     def handle_set_point_response(self, future, channel_id):
         """목표정보 전송 결과를 표시합니다."""
         try:
@@ -225,7 +226,8 @@ class SlackMessageHandler(Node):
                 "current_task": RobotStatus.STATUS_LIST[response.current_task],
                 "remain_time": response.remain_time,
                 "current_pose": response.current_pose,
-                "current_path": response.current_path
+                "current_path": response.current_path,
+                "remain_battery": response.remain_battery
             }
         else:
             return {
@@ -233,7 +235,8 @@ class SlackMessageHandler(Node):
                 "current_task": "Error",
                 "remain_time": "N/A",
                 "current_pose": "Error",
-                "current_path": "Error"
+                "current_path": "Error",
+                "remain_battery": "Error"
             }
             
     def process_being_used(self, current_user, current_task, remain_time):

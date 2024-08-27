@@ -33,7 +33,7 @@ class RobotManager(Node):
         
         self.robot_path_list = []
         
-        self.remain_battery = 100
+        self.remain_battery = float(100)
         
         # WayPointCalculator 초기화
         self.waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)
@@ -69,7 +69,7 @@ class RobotManager(Node):
         self.robot_path_list = robot_path_list
         
     def battery_update_callback(self, data):
-        self.remain_battery  = float(data)
+        self.remain_battery = round(float(data.data), 2)
 
     def start_auto_return_timer(self):
         # 30초 타이머 후 자동 복귀 함수
@@ -104,23 +104,19 @@ class RobotManager(Node):
         return response
 
     def set_waypoint_callback(self, request, response):
-        # 취소 명령 처리
-        if request.command_type == CommandConstants.CANCEL:
-            self.cancel_event.set()  # 이벤트 플래그를 설정하여 대기 중인 작업을 중단
-            
         # 아직 로봇에게 명령을 내린 이용자가 없거나 같은 이용자가 계속 이용할 경우
         if self.current_user == "" or self.current_user == request.user_name:
             self.cancel_auto_return_timer()
+            print(request.command_type)
             if request.command_type == CommandConstants.CANCEL:
-                if self.robot_state == CommandConstants.CANCEL:
+                if self.robot_state == RobotStatus.STATUS_RETURN:
                     response.success = False
                     response.message = "Cancel error! There is nothing to cancel."
                     
-                else:
+                elif self.robot_state == RobotStatus.STATUS_CALL or self.robot_state == RobotStatus.STATUS_SEND:
                     if self.send_goal._current_goal_handle is not None:
                         self.send_goal._current_goal_handle.cancel_goal_async()
                         self.get_logger().info("Cancelling the current goal and returning to standby.")
-                        
                         
                     standby_point = self.return_location
                     self.send_goal.send_goal(standby_point)  # 대기 위치로 이동
@@ -130,6 +126,16 @@ class RobotManager(Node):
                     
                     response.success = True
                     response.message = "Request received! The robot is starting to return to the standby position!"
+                    
+                elif self.robot_state == RobotStatus.STATUS_FOLLOW:
+                    chase_request = SetBool.Request()
+                    chase_request.data = False
+                    result = self.chase_client.call(chase_request)
+                    self.current_user = ""
+                    self.robot_state = RobotStatus.STATUS_RETURN
+                    response.success = True
+                    response.message = "Request received! The robot is starting to return to the standby position!"
+                    self.get_logger().info("Cancelling Follow.")
                 
             elif request.command_type == CommandConstants.SEND_ROBOT:
                 self.optimal_waypoint = self.waypoint_calculator.calculate_optimal_route(request.point_list)
@@ -155,13 +161,26 @@ class RobotManager(Node):
                 response.message = "Request received! The robot is on task!"
                 
             elif request.command_type == CommandConstants.FOLLOW:
-                request = True
-                future = self.chase_client.call_async(request)
-                future.add_done_callback(self.chase_client_callback)
+                self.get_logger().info(f"Chase mode starting")
+                
+                # SetBool 서비스 요청을 생성
+                chase_request = SetBool.Request()
+                chase_request.data = True
+                
+                # 비동기로 서비스 호출
+                future = self.chase_client.call_async(chase_request)
+                
+                # 응답 처리를 위한 콜백 함수 추가
+                future.add_done_callback(self.handle_chase_response)
+                
+                # 로봇의 상태를 변경 (콜백에서 완료를 확인하지 않고 상태를 설정)
                 self.current_user = request.user_name
                 self.robot_state = RobotStatus.STATUS_FOLLOW
+                
+                # 임시로 성공 응답을 바로 설정 (실제 성공 여부는 콜백에서 확인)
                 response.success = True
                 response.message = "Request received! The robot is on task!"
+                self.get_logger().info(f"Chase mode on")
                 
             elif request.command_type == CommandConstants.RETURN:
                 self.current_user = ""
@@ -214,6 +233,7 @@ class RobotManager(Node):
         
         # 배터리 잔량 표시
         response.remain_battery = self.remain_battery
+        self.get_logger().info(f"Get Status")
         return response
     
     def goal_completed_callback(self):
@@ -246,6 +266,16 @@ class RobotManager(Node):
                 future = self.complete_task_client.call_async(request)
                 future.add_done_callback(self.handle_complete_task_response)
                 
+    def handle_chase_response(self, future):
+        try:
+            result = future.result()
+            if result.success:
+                self.get_logger().info("Chase mode successfully started.")
+            else:
+                self.get_logger().warn("Chase mode failed to start.")
+        except Exception as e:
+            self.get_logger().error(f"Chase mode service call failed with exception: {str(e)}")
+                    
     def handle_complete_task_response(self, future):
         try:
             result = future.result()
@@ -257,17 +287,6 @@ class RobotManager(Node):
                 self.get_logger().warn("Task completion service call failed.")
         except Exception as e:
             self.get_logger().error(f"Error in task completion callback: {str(e)}")
-            
-    def chase_client_callback(self, future):
-        try:
-            result = future.result()
-            if result.success:
-                self.robot_state = RobotStatus.STATUS_FOLLOW
-                self.get_logger().info("Chase mode on.")
-            else:
-                self.get_logger().warn("Task completion service call failed.")
-        except Exception as e:
-            self.get_logger().error(f"Error in chase client callback: {str(e)}")
     
 def main():
     rclpy.init()

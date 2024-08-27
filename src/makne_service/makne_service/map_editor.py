@@ -23,7 +23,7 @@ class MapEditor():
         draw = ImageDraw.Draw(copy_map)
 
         # 폰트 설정 (시스템에 설치된 폰트 경로 필요)
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 20)
 
         # 이미지 상단에 제목 추가
         title_text = "Where are you Makne?"
