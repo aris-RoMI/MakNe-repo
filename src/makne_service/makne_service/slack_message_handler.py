@@ -3,7 +3,9 @@ import requests
 import time
 import threading
 import subprocess
-import os, re, io
+import os, re
+from io import BytesIO
+from PIL import Image
 from flask import Flask, request, jsonify
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -252,13 +254,15 @@ class SlackMessageHandler(Node):
                 current_user = "None"
                 
         # 로봇 상태 이미지를 생성
-        image = self.map_editor.overlay_robot_state_on_image(robot_pose, robot_path)
+        buffer = self.map_editor.overlay_robot_state_on_image(robot_pose, robot_path)
 
         # 이미지를 메모리에 저장
-        image_bytes = io.BytesIO()
+        image = Image.open(BytesIO(buffer))
+
+        # 이미지를 메모리에 저장 (BytesIO 객체로 변환)
+        image_bytes = BytesIO()
         image.save(image_bytes, format='PNG')
         image_bytes.seek(0)
-        
         # 이미지와 함께 보낼 메시지 설정
         message = f"current_user : {current_user}, current_task : {current_task}, remain_time : {remain_time}\ncurrent_battery : {remain_battery}%"
 
@@ -272,9 +276,8 @@ class SlackMessageHandler(Node):
         channel_name = self.fetch_channel_name(self.current_channel_id)
 
         mentioned_user_names = re.findall(r"@(\w+)", self.current_text)
-        slack_name_list = mentioned_user_names + [user_name]
 
-        print(f"Waypoint List: {slack_name_list}")
+        print(f"Waypoint List: {mentioned_user_names}")
         
         return jsonify({
             "response_type": "ephemeral",
@@ -285,7 +288,7 @@ class SlackMessageHandler(Node):
                     "block_id": "select_location_block",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"Current selected location list : {slack_name_list}\nAre you sure you want to proceed with this list?"
+                        "text": f"Current selected location list : {mentioned_user_names}\nAre you sure you want to proceed with this list?"
                     }
                 },
                 {
@@ -298,7 +301,7 @@ class SlackMessageHandler(Node):
                                 "text": "Confirm"
                             },
                             "style": "primary",
-                            "value": json.dumps(slack_name_list),
+                            "value": json.dumps(mentioned_user_names),
                             "action_id": "confirm_send_action"
                         },
                         {
@@ -315,7 +318,7 @@ class SlackMessageHandler(Node):
                 }
             ],
             "callback_id": "send_robot_callback",
-            "selected_list": slack_name_list
+            "selected_list": mentioned_user_names
         })
 
     def process_call_robot(self):
@@ -483,6 +486,12 @@ class SlackMessageHandler(Node):
                         
                     # robot_call 명령창에서 보낼 곳을 선택한 뒤 로봇에 보내는 부분
                     elif action_id == 'confirm_call_action':
+                        selected_value = actions[0].get('selected_option', {}).get('value')
+                        selected_value = actions[0].get('selected_option', {}).get('value')
+
+                        if selected_value is None:
+                            selected_value = "worker_1" 
+
                         self.send_point(CommandConstants.CALL_ROBOT, channel_id, user_name, [selected_value])
                         response_message = f"Request successfully received by {user_name} in channel {channel_name} command : Call.\nGoal :{selected_value}"
 

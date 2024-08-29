@@ -2,7 +2,7 @@ import numpy as np
 from makne_db.db_manager import DBManager
 from library.Constants import DBConstants
 
-class WayPointCalculator():
+class CheckPointCalculator():
     def __init__(self, db):
         self.db_manager = DBManager(db)
     
@@ -40,18 +40,13 @@ class WayPointCalculator():
                     
                     location_x = location_data[0][DBConstants.LOCATION_X_COLUMN]  # location_x
                     location_y = location_data[0][DBConstants.LOCATION_Y_COLUMN]  # location_y
+                    print(f"location_by_slack_ids : {location_x}, {location_y}")
                     waypoints.append((location_x, location_y))
 
         return waypoints
 
-    def calculate_optimal_route(self, slack_ids):
+    def calculate_optimal_route(self, slack_ids, starting_point):
         """slack_id 리스트와 시작점을 사용하여 최적의 경로를 계산"""
-        cafe_location_data = self.db_manager.get_data_with_condition(DBConstants.LOCATION_INFO, DBConstants.LOCATION_NAME, DBConstants.CAFE)
-        if cafe_location_data:
-            cafe_location_x = cafe_location_data[0][DBConstants.LOCATION_X_COLUMN]
-            cafe_location_y = cafe_location_data[0][DBConstants.LOCATION_Y_COLUMN]
-            starting_point = (cafe_location_x, cafe_location_y)
-        
         waypoints = self.get_waypoints_from_slack_ids(slack_ids)
         if waypoints and starting_point:
             optimal_route = self.reorder_waypoints(starting_point, waypoints)

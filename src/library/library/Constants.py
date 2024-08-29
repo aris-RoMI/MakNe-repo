@@ -44,3 +44,7 @@ class MapEditorConstants:
     MAP_YAML_FILE= "wtf1.yaml"
     X_INDEX = 0
     Y_INDEX = 1
+    
+    ROI_CENTER_X = 200
+    ROI_CENTER_Y = 174
+    ROI_SIZE = 130

@@ -17,13 +17,23 @@ class SendGoal(Thread):
         while rclpy.ok():
             rclpy.spin_once(self.node, timeout_sec=0.1)
 
-    def send_goal(self, waypoint: PoseStamped):
+    def send_goal(self, x: float, y: float, z: float = 0.0, qx: float = 0.0, qy: float = 0.0, qz: float = 0.0, qw: float = 1.0):
         # 주어진 목표를 처리
-        self.node.get_logger().info(f"Sending goal to: {waypoint.pose.position.x}, {waypoint.pose.position.y}")
+        self.node.get_logger().info(f"Sending goal to: x={x}, y={y}, z={z}, qx={qx}, qy={qy}, qz={qz}, qw={qw}")
         
         # NavigateToPose goal_msg 생성
         goal_msg = NavigateToPose.Goal()
-        goal_msg.pose = waypoint  # 목표 위치를 설정
+
+        # 위치 설정
+        goal_msg.pose.pose.position.x = x
+        goal_msg.pose.pose.position.y = y
+        goal_msg.pose.pose.position.z = z
+
+        # 방향(orientation) 설정
+        goal_msg.pose.pose.orientation.x = qx
+        goal_msg.pose.pose.orientation.y = qy
+        goal_msg.pose.pose.orientation.z = qz
+        goal_msg.pose.pose.orientation.w = qw
 
         self._action_client.wait_for_server()
 
@@ -36,6 +46,7 @@ class SendGoal(Thread):
         # 새 목표 전송
         send_goal_future = self._action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
         send_goal_future.add_done_callback(self.goal_response_callback)
+
 
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
@@ -66,3 +77,38 @@ class SendGoal(Thread):
         # 목표가 완료되면 추가적인 작업을 수행할 수 있음
         self._current_goal_handle = None  # 목표가 완료되었으므로 handle을 해제
         self.node.goal_completed_callback()  # 목표 완료 후 콜백 호출
+        
+def main(args=None):
+    rclpy.init(args=args)
+
+    # ROS 2 노드 생성
+    node = Node('test_nav_goal_sender')
+
+    # SendGoal 클래스 인스턴스 생성 및 스레드 시작
+    goal_sender = SendGoal(node)
+    goal_sender.start()
+
+    # 특정 포인트로 이동 명령을 전송
+    target_pose = {
+        'x': 0.6,
+        'y': 0.02,
+        'z': 0.0,
+        'qx': 0.0,
+        'qy': 0.0,
+        'qz': 0.0,
+        'qw': 1.0
+    }
+
+    node.get_logger().info('Sending goal to the target point...')
+    goal_sender.send_goal(target_pose['x'], target_pose['y'], target_pose['z'], target_pose['qx'], target_pose['qy'], target_pose['qz'], target_pose['qw'])
+
+    # 노드가 종료될 때까지 실행
+    rclpy.spin(node)
+
+    # 종료 처리
+    goal_sender.join()
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
