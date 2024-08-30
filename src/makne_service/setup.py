@@ -23,7 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             "slack_message_handler = makne_service.slack_message_handler:main",
-            "waypoint_calculator = makne_service.waypoint_calculator:main",
+            "checkpoint_calculator = makne_service.checkpoint_calculator:main",
             "robot_manager = makne_service.robot_manager:main",
             "send_goal_client = makne_service.send_goal_client:main",
             "map_editor = makne_service.map_editor:main",

@@ -9,6 +9,7 @@ from std_msgs.msg import String
 from std_srvs.srv import SetBool
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Pose, Point
 from nav_msgs.msg import Path
+import math
 
 class RobotManager(Node):
     def __init__(self):
@@ -126,6 +127,7 @@ class RobotManager(Node):
                     self.robot_state = RobotStatus.STATUS_RETURN
                     self.optimal_checkpoint = []
                     
+                    # self.send_goal.send_goal(standby_point)  # 대기 위치로 이동
                     response.success = True
                     response.message = "Request received! The robot is starting to return to the standby position!"
                     self.get_logger().info("Cancelling send(call).")
@@ -143,7 +145,7 @@ class RobotManager(Node):
                     self.get_logger().info("Cancelling Follow.")
                     
                     standby_point = self.return_location
-                    self.send_goal.send_goal(standby_point)  # 대기 위치로 이동
+                    # self.send_goal.send_goal(standby_point)  # 대기 위치로 이동
                     self.current_user = ""
                     self.robot_state = RobotStatus.STATUS_RETURN
                 
@@ -165,7 +167,10 @@ class RobotManager(Node):
                 self.optimal_checkpoint = request.point_list
                 next_point = self.optimal_checkpoint.pop(0)
                 goal_point = self.checkpoint_calculator.get_point_from_location_name(next_point)
-                self.send_goal.send_goal(goal_point)
+                if next_point == "cafe":
+                    self.send_goal.send_goal(goal_point, z = math.pi)
+                else:
+                    self.send_goal.send_goal(goal_point)
                 
                 self.current_user = request.user_name
                 self.robot_state = RobotStatus.STATUS_CALL

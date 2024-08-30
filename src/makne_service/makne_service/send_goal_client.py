@@ -4,6 +4,7 @@ from rclpy.node import Node
 from threading import Thread
 from nav2_msgs.action import NavigateToPose  # 실제 로봇 내비게이션 액션 사용
 from geometry_msgs.msg import PoseStamped  # 목표 위치를 정의하기 위해 필요
+from builtin_interfaces.msg import Time
 
 class SendGoal(Thread):
     def __init__(self, node: Node):
@@ -17,12 +18,18 @@ class SendGoal(Thread):
         while rclpy.ok():
             rclpy.spin_once(self.node, timeout_sec=0.1)
 
-    def send_goal(self, x: float, y: float, z: float = 0.0, qx: float = 0.0, qy: float = 0.0, qz: float = 0.0, qw: float = 1.0):
+    def send_goal(self, point, z: float = 0.0, qx: float = 0.0, qy: float = 0.0, qz: float = 1.0, qw: float = 0.0):
         # 주어진 목표를 처리
+        x = float(point[0])
+        y = float(point[1])
         self.node.get_logger().info(f"Sending goal to: x={x}, y={y}, z={z}, qx={qx}, qy={qy}, qz={qz}, qw={qw}")
         
         # NavigateToPose goal_msg 생성
         goal_msg = NavigateToPose.Goal()
+
+        # 헤더 설정
+        goal_msg.pose.header.stamp = self.node.get_clock().now().to_msg()  # 현재 시간 설정
+        goal_msg.pose.header.frame_id = "map"  # 좌표계 설정 (보통 'map' 프레임 사용)
 
         # 위치 설정
         goal_msg.pose.pose.position.x = x

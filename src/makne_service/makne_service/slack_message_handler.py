@@ -332,55 +332,56 @@ class SlackMessageHandler(Node):
             for name in location_names
         ]
         return jsonify({
-            "response_type": "ephemeral",
-            "text": f"{user_name} is calling the robot in the {channel_name} channel.",
-            "blocks": [
+    "response_type": "ephemeral",
+    "text": f"{user_name} is calling the robot in the {channel_name} channel.",
+    "blocks": [
+        {
+            "type": "section",
+            "block_id": "select_location_block",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Select Location and Confirm:"
+            },
+            "accessory": {
+                "type": "static_select",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": location_names[0]
+                },
+                "options": locations,
+                "action_id": "select_location"
+            }
+        },
+        {
+            "type": "actions",
+            "block_id": "actions_block",
+            "elements": [
                 {
-                    "type": "section",
-                    "block_id": "select_location_block",
+                    "type": "button",
                     "text": {
-                        "type": "mrkdwn",
-                        "text": "Select Location :"
+                        "type": "plain_text",
+                        "text": "Confirm"
                     },
-                    "accessory": {
-                        "type": "static_select",
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": location_names[0]
-                        },
-                        "options": locations,
-                        "action_id": "select_location"
-                    }
+                    "style": "primary",
+                    "value": "confirm_location",
+                    "action_id": "confirm_call_action"
                 },
                 {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Confirm"
-                            },
-                            "style": "primary",
-                            "value": "confirm_location",
-                            "action_id": "confirm_call_action"
-                        },
-                        {
-                            "type": "button",
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Cancel"
-                            },
-                            "style": "danger",
-                            "value": "cancel_call",
-                            "action_id": "cancel_call_action"
-                        }
-                    ]
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Cancel"
+                    },
+                    "style": "danger",
+                    "value": "cancel_call",
+                    "action_id": "cancel_call_action"
                 }
-            ],
-            "callback_id": "call_robot_callback"
-        })
-
+            ]
+        }
+    ],
+    "callback_id": "call_robot_callback"
+})
+        
     def process_follow(self):
         """/follow 명령에 대한 결과 표시 취소 버튼 포함"""
         user_name = self.fetch_user_name(self.current_user_id)
@@ -486,14 +487,14 @@ class SlackMessageHandler(Node):
                         
                     # robot_call 명령창에서 보낼 곳을 선택한 뒤 로봇에 보내는 부분
                     elif action_id == 'confirm_call_action':
-                        selected_value = actions[0].get('selected_option', {}).get('value')
-                        selected_value = actions[0].get('selected_option', {}).get('value')
+                        selected_option = payload['state']['values']['select_location_block']['select_location']['selected_option']
+                        if selected_option is None:
+                            selected_location = "worker_1"
+                        else:
+                            selected_location = selected_option["text"]["text"]
 
-                        if selected_value is None:
-                            selected_value = "worker_1" 
-
-                        self.send_point(CommandConstants.CALL_ROBOT, channel_id, user_name, [selected_value])
-                        response_message = f"Request successfully received by {user_name} in channel {channel_name} command : Call.\nGoal :{selected_value}"
+                        self.send_point(CommandConstants.CALL_ROBOT, channel_id, user_name, [selected_location])
+                        response_message = f"Request successfully received by {user_name} in channel {channel_name} command : Call.\nGoal :{selected_location}"
 
                         response = {
                             "response_type": "ephemeral",

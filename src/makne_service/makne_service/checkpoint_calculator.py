@@ -57,13 +57,14 @@ class CheckPointCalculator():
         
     def get_point_from_location_name(self, location_name):
         location_data = self.db_manager.get_data_with_condition(DBConstants.LOCATION_INFO, DBConstants.LOCATION_NAME, location_name)
+        print(location_data)
         location_x = location_data[0][DBConstants.LOCATION_X_COLUMN]
         location_y = location_data[0][DBConstants.LOCATION_Y_COLUMN]
         location_point = (location_x, location_y)
         return location_point
 
 def main():
-    waypoint_calculator = WayPointCalculator(DBConstants.DB_NAME)
+    waypoint_calculator = CheckPointCalculator(DBConstants.DB_NAME)
 
     # 예시 시작점과 slack_id 리스트
     slack_ids = ["dlwlgh0106", "jigu0825"]
